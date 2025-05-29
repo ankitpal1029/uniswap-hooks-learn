@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.26;
 
+import {PoolId} from "v4-core/src/types/PoolId.sol";
+
 abstract contract Variables {
     struct VaultVariablesState {
         bool reEntrancy;
@@ -87,14 +89,11 @@ abstract contract Variables {
         uint24 minimaTickOfNextBranch; // minima tick of branch this is connected to. 0 if master branch.
     }
 
-    VaultVariablesState internal vaultVariables;
+    mapping(PoolId poolId => VaultVariablesState) vaultVariables;
 
-    VaultVariablesConfig internal vaultVariablesConfig;
+    mapping(PoolId poolId => VaultVariablesConfig) vaultVariablesConfig;
 
-    uint128 internal absorbedLiquidityRawDebt;
-    uint128 internal absorbedLiquidityRawCollateral;
-
-    mapping(uint256 => Position) internal positionData;
+    mapping(PoolId poolId => mapping(uint256 => Position)) positionData;
 
     /// Tick has debt only keeps data of non liquidated positions. liquidated tick's data stays in branch itself
     /// tick parent => uint (represents bool for 256 children)
@@ -102,5 +101,5 @@ abstract contract Variables {
     /// if (i>=0) (i / 256);
     /// else ((i + 1) / 256) - 1
     /// first bit of the variable is the smallest tick & last bit is the biggest tick of that slot
-    mapping(int256 => TickData) internal tickHasDebt;
+    mapping(PoolId poolId => mapping(int256 => TickData)) tickHasDebt;
 }

@@ -30,10 +30,13 @@ contract LendingHookTest is Test, GasSnapshot, Fixtures {
     int24 tickLower;
     int24 tickUpper;
 
+    Currency tokenA;
+    Currency tokenB;
+
     function setUp() public {
         // creates the pool manager, utility routers, and test tokens
         deployFreshManagerAndRouters();
-        deployMintAndApprove2Currencies();
+        (tokenA, tokenB) = deployMintAndApprove2Currencies();
 
         deployAndApprovePosm(manager);
 

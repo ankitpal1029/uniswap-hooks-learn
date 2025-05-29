@@ -9,6 +9,10 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "v4-core/src/types/PoolId.sol";
+import {BalanceDelta} from "v4-core/src/types/BalanceDelta.sol";
+import {BeforeSwapDelta, toBeforeSwapDelta} from "v4-core/src/types/BeforeSwapDelta.sol";
+import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
+
 import {Variables} from "./Variables.sol";
 import {Lending} from "./Lending.sol";
 
@@ -49,11 +53,11 @@ contract LendingHook is BaseHook, Variables {
             beforeInitialize: false,
             afterInitialize: true, // Track supported pools
             beforeAddLiquidity: false,
-            afterAddLiquidity: true, // Track LP positions
+            afterAddLiquidity: false, // Track LP positions
             beforeRemoveLiquidity: false,
-            afterRemoveLiquidity: true, // Update LP positions
+            afterRemoveLiquidity: false, // Update LP positions
             beforeSwap: true, // Apply inverse range orders & check position health
-            afterSwap: true, // Update positions after price changes
+            afterSwap: false, // Update positions after price changes
             beforeDonate: false,
             afterDonate: false,
             beforeSwapReturnDelta: false,
@@ -61,6 +65,27 @@ contract LendingHook is BaseHook, Variables {
             afterAddLiquidityReturnDelta: false,
             afterRemoveLiquidityReturnDelta: false
         });
+    }
+
+    function _afterInitialize(address, PoolKey calldata key, uint160 sqrtPriceX96, int24 tick)
+        internal
+        override
+        onlyPoolManager
+        returns (bytes4)
+    {
+        // setup lending market
+        return (IHooks.afterInitialize.selector);
+    }
+
+    function _beforeSwap(address addr, PoolKey calldata key, IPoolManager.SwapParams calldata params, bytes calldata)
+        internal
+        override
+        onlyPoolManager
+        returns (bytes4, BeforeSwapDelta, uint24)
+    {
+        BeforeSwapDelta delta = toBeforeSwapDelta(0, 0);
+        // only thing that happens in this function is trigger liquidation and sell
+        return (IHooks.beforeSwap.selector, delta, 0);
     }
 
     function setLending(address _lender) public onlyOwner {
