@@ -10,8 +10,10 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "v4-core/src/types/PoolId.sol";
 import {BalanceDelta} from "v4-core/src/types/BalanceDelta.sol";
-import {BeforeSwapDelta, toBeforeSwapDelta} from "v4-core/src/types/BeforeSwapDelta.sol";
+import {BeforeSwapDelta, toBeforeSwapDelta, BeforeSwapDeltaLibrary} from "v4-core/src/types/BeforeSwapDelta.sol";
 import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
+import {TickMath} from "v4-core/src/libraries/TickMath.sol";
+import {Constants} from "v4-core/test/utils/Constants.sol";
 
 import {Variables} from "./Variables.sol";
 import {Lending} from "./Lending.sol";
@@ -31,6 +33,8 @@ contract LendingHook is BaseHook, Variables {
 
     uint256 public constant LIQUIDATION_THRESHOLD = 9000; // 90% threshold
     uint256 public constant LIQUIDATION_MAX_LIMIT = 9500; // 95% max limit
+
+    mapping(PoolId => uint256 count) public beforeSwapCount;
 
     modifier onlyOwner() {
         require(msg.sender == owner, "UNAUTHORISED");
@@ -83,9 +87,28 @@ contract LendingHook is BaseHook, Variables {
         onlyPoolManager
         returns (bytes4, BeforeSwapDelta, uint24)
     {
-        BeforeSwapDelta delta = toBeforeSwapDelta(0, 0);
+        beforeSwapCount[key.toId()]++;
+        // do another swap
+        IPoolManager.SwapParams memory swapParams = IPoolManager.SwapParams({
+            zeroForOne: true,
+            // amountSpecified: amountIn,
+            amountSpecified: -int256(100 ether),
+            // Set the price limit to be the least possible if swapping from Token 0 to Token 1
+            // or the maximum possible if swapping from Token 1 to Token 0
+            // i.e. infinite slippage allowed
+            sqrtPriceLimitX96: true ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
+        });
+
+        // check how to do swap
+        // _handleSwap(key, params);
         // only thing that happens in this function is trigger liquidation and sell
-        return (IHooks.beforeSwap.selector, delta, 0);
+        return (IHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
+    }
+
+    function _handleSwap(PoolKey calldata key, IPoolManager.SwapParams calldata params) internal {
+        poolManager.take(
+            params.zeroForOne ? key.currency1 : key.currency0, address(this), uint256(params.amountSpecified)
+        );
     }
 
     function setLending(address _lender) public onlyOwner {
