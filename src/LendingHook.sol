@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
+import "forge-std/console.sol";
 import {IPoolManager} from "v4-periphery/lib/v4-core/src/interfaces/IPoolManager.sol";
 import {BaseHook} from "v4-periphery/src/utils/BaseHook.sol";
 import {Hooks} from "v4-core/src/libraries/Hooks.sol";
@@ -99,16 +100,69 @@ contract LendingHook is BaseHook, Variables {
             sqrtPriceLimitX96: true ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
         });
 
+        // console.log(
+        //     IERC20(0x15cF58144EF33af1e14b5208015d11F9143E27b9).balanceOf(address(this)),
+        //     IERC20(0x15cF58144EF33af1e14b5208015d11F9143E27b9).balanceOf(address(poolManager))
+        // );
+        // IERC20(0x15cF58144EF33af1e14b5208015d11F9143E27b9).transfer(address(poolManager), 1e18);
+
         // check how to do swap
         // _handleSwap(key, params);
         // only thing that happens in this function is trigger liquidation and sell
         return (IHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
     }
 
-    function _handleSwap(PoolKey calldata key, IPoolManager.SwapParams calldata params) internal {
-        poolManager.take(
-            params.zeroForOne ? key.currency1 : key.currency0, address(this), uint256(params.amountSpecified)
-        );
+    function _handleSwap(PoolKey calldata key, IPoolManager.SwapParams calldata params)
+        internal
+        returns (BalanceDelta)
+    {
+        // conducting the swap inside the pool manager
+        BalanceDelta delta = poolManager.swap(key, params, "");
+        // if swap is zeroForOne
+        // send token0 to poolManager , receive token1 from poolManager
+        if (params.zeroForOne) {
+            // negative value -> token is transferred from user's wallet
+
+            if (delta.amount0() < 0) {
+                // settle it with poolManager
+                _settle(key.currency0, uint128(-delta.amount0()));
+            }
+
+            // positive value -> token is transfered from poolManager
+
+            if (delta.amount1() > 0) {
+                // take the token from poolManager
+                _take(key.currency1, uint128(delta.amount1()));
+            }
+        } else {
+            // negative value -> token is transferred from user's wallet
+
+            if (delta.amount1() < 0) {
+                // settle it with poolManager
+                _settle(key.currency1, uint128(delta.amount1()));
+            }
+
+            // positive value -> token is transfered from poolManager
+
+            if (delta.amount0() > 0) {
+                // take the token from poolManager
+                _take(key.currency0, uint128(delta.amount0()));
+            }
+        }
+
+        return delta;
+    }
+
+    function _settle(Currency currency, uint128 amount) internal {
+        poolManager.sync(currency);
+        // transfer the toke to poolManager
+        currency.transfer(address(poolManager), amount);
+        // notify the poolManager
+        poolManager.settle();
+    }
+
+    function _take(Currency currency, uint128 amount) internal {
+        poolManager.take(currency, address(this), amount);
     }
 
     function setLending(address _lender) public onlyOwner {

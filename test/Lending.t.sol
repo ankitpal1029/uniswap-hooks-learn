@@ -19,6 +19,7 @@ import {Fixtures} from "./utils/Fixtures.sol";
 import {LendingHook} from "../src/LendingHook.sol";
 import {LendingHookStub} from "./LendingHookStub.sol";
 import {BalanceDelta} from "v4-core/src/types/BalanceDelta.sol";
+import {IERC20} from "v4-core/lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
 contract LendingHookTest is Test, GasSnapshot, Fixtures {
     // use libs
@@ -38,7 +39,7 @@ contract LendingHookTest is Test, GasSnapshot, Fixtures {
     function setUp() public {
         // creates the pool manager, utility routers, and test tokens
         deployFreshManagerAndRouters();
-        deployMintAndApprove2Currencies();
+        (tokenA, tokenB) = deployMintAndApprove2Currencies();
 
         deployAndApprovePosm(manager);
 
@@ -54,6 +55,9 @@ contract LendingHookTest is Test, GasSnapshot, Fixtures {
         );
         deployCodeTo("LendingHook.sol:LendingHook", constructorArgs, flags);
         hook = LendingHook(flags);
+        console.log("LendingHook address:", address(hook));
+        console.log("TokenA:", Currency.unwrap(tokenA));
+        console.log("TokenB:", Currency.unwrap(tokenB));
 
         // Create the pool
         key = PoolKey(currency0, currency1, 3000, 60, IHooks(hook));
@@ -91,6 +95,8 @@ contract LendingHookTest is Test, GasSnapshot, Fixtures {
 
         bool zeroForOne = true;
         int256 amountSpecified = -1e18; // negative number indicates exact input swap!
+
+        IERC20(Currency.unwrap(tokenA)).transfer(address(hook), 2e18);
         BalanceDelta swapDelta = swap(key, zeroForOne, amountSpecified, ZERO_BYTES);
         // Log price before swap
         (uint160 sqrtPriceX96Before, int24 tickBefore, uint24 protocolFeeBefore, uint24 swapFeeBefore) =
@@ -104,21 +110,22 @@ contract LendingHookTest is Test, GasSnapshot, Fixtures {
         // Calculate and log actual price before swap (with proper decimal handling)
         // price = (sqrtPriceX96 * sqrtPriceX96) / (2^192)
         // Then adjust for decimals: price = price * 10^18 / 10^18
-        uint256 priceBefore = (uint256(sqrtPriceX96Before) * uint256(sqrtPriceX96Before)) >> 192;
-        console.log("price (token1/token0) raw:", priceBefore);
-        console.log("price (token1/token0) in decimals:", priceBefore * 1e18 / (1e18)); // This will show the actual price with 18 decimals
+        // uint256 priceBefore = (uint256(sqrtPriceX96Before) * uint256(sqrtPriceX96Before)) >> 192;
+        // console.log("price (token1/token0) raw:", priceBefore);
+        // console.log("price (token1/token0) in decimals:", priceBefore * 1e18 / (1e18)); // This will show the actual price with 18 decimals
 
         // Perform your swap
-        uint256 swapAmount = 100 ether;
-        swap(key, true, -int256(swapAmount), ZERO_BYTES);
+        // uint256 swapAmount = 100 ether;
+        // give LendingHook x amount of TokenA to swap
+        // swap(key, true, -int256(swapAmount), ZERO_BYTES);
 
         // Log price after swap
-        (uint160 sqrtPriceX96After, int24 tickAfter, uint24 protocolFeeAfter, uint24 swapFeeAfter) =
-            manager.getSlot0(poolId);
-        console.log("sqrtPriceX96After", sqrtPriceX96After);
-        console.log("tickAfter", tickAfter);
-        console.log("protocolFeeAfter", protocolFeeAfter);
-        console.log("swapFeeAfter", swapFeeAfter);
+        // (uint160 sqrtPriceX96After, int24 tickAfter, uint24 protocolFeeAfter, uint24 swapFeeAfter) =
+        //     manager.getSlot0(poolId);
+        // console.log("sqrtPriceX96After", sqrtPriceX96After);
+        // console.log("tickAfter", tickAfter);
+        // console.log("protocolFeeAfter", protocolFeeAfter);
+        // console.log("swapFeeAfter", swapFeeAfter);
 
         // assertEq(int256(swapDelta.amount0()), amountSpecified);
 
