@@ -48,16 +48,17 @@ abstract contract Variables {
     }
 
     struct Position {
+        bool isInitialized;
         bool isSupply; // true -> supply, false -> borrow
-        bool userTick; // true -> positive, false -> negative
-        int24 userTickId; // user's tick's id
-        uint64 supplyAmount; // user's supply amount. Debt will be calculated through supply & ratio.
-        /**
-         * User's dust debt amount. User's net debt = total debt - dust amount.
-         *   Total debt is calculated through supply & ratio
-         */
-        uint64 dustDebtAmount;
+        int256 userTick; // true -> positive, false -> negative
+        uint256 userTickId; // user's tick's id
+        uint256 supplyAmount; // user's supply amount. Debt will be calculated through supply & ratio.
     }
+    /**
+     * User's dust debt amount. User's net debt = total debt - dust amount.
+     *   Total debt is calculated through supply & ratio
+     */
+    // uint64 dustDebtAmount;
     /// User won't pay any extra interest on dust debt & hence we will not show it as a debt on UI. For user's there's no dust.
 
     struct TickData {
@@ -89,10 +90,17 @@ abstract contract Variables {
         uint24 minimaTickOfNextBranch; // minima tick of branch this is connected to. 0 if master branch.
     }
 
+    struct TickId {
+        bool isFullyLiquidated;
+        uint256 branchId;
+        uint256 debtFactor; // TODO: figure out why you need this
+    }
+
     mapping(PoolId poolId => VaultVariablesState) vaultVariables;
 
     mapping(PoolId poolId => VaultVariablesConfig) vaultVariablesConfig;
 
+    // uniswap poolId => nftId => positionData
     mapping(PoolId poolId => mapping(uint256 => Position)) positionData;
 
     /// Tick has debt only keeps data of non liquidated positions. liquidated tick's data stays in branch itself
@@ -102,4 +110,8 @@ abstract contract Variables {
     /// else ((i + 1) / 256) - 1
     /// first bit of the variable is the smallest tick & last bit is the biggest tick of that slot
     mapping(PoolId poolId => mapping(int256 => TickData)) tickHasDebt;
+
+    // uniswap poolid => tick => tickId => tickId
+    // tickId starts from 1
+    mapping(PoolId poolId => mapping(int256 => mapping(uint256 => TickId))) tickId;
 }

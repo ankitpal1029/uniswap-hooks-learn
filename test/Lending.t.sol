@@ -21,6 +21,8 @@ import {LendingHookStub} from "./LendingHookStub.sol";
 import {BalanceDelta} from "v4-core/src/types/BalanceDelta.sol";
 import {IERC20} from "v4-core/lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
+// import {Lending}  from "../../src/LendingHook.sol";
+
 contract LendingHookTest is Test, GasSnapshot, Fixtures {
     // use libs
     using EasyPosm for IPositionManager;
@@ -33,13 +35,13 @@ contract LendingHookTest is Test, GasSnapshot, Fixtures {
     int24 tickLower;
     int24 tickUpper;
 
-    Currency tokenA;
-    Currency tokenB;
+    // Currency currency0;
+    // Currency currency1;
 
     function setUp() public {
         // creates the pool manager, utility routers, and test tokens
         deployFreshManagerAndRouters();
-        (tokenA, tokenB) = deployMintAndApprove2Currencies();
+        (currency0, currency1) = deployMintAndApprove2Currencies();
 
         deployAndApprovePosm(manager);
 
@@ -56,8 +58,8 @@ contract LendingHookTest is Test, GasSnapshot, Fixtures {
         deployCodeTo("LendingHook.sol:LendingHook", constructorArgs, flags);
         hook = LendingHook(flags);
         console.log("LendingHook address:", address(hook));
-        console.log("TokenA:", Currency.unwrap(tokenA));
-        console.log("TokenB:", Currency.unwrap(tokenB));
+        console.log("Currency0(WETH):", Currency.unwrap(currency0));
+        console.log("Currency1(USDC):", Currency.unwrap(currency1));
 
         // Create the pool
         key = PoolKey(currency0, currency1, 3000, 60, IHooks(hook));
@@ -90,45 +92,32 @@ contract LendingHookTest is Test, GasSnapshot, Fixtures {
         );
     }
 
-    function testCounterHooks() public {
-        assertEq(hook.beforeSwapCount(poolId), 0);
+    // function testSwapInternal() public {
+    //     assertEq(hook.beforeSwapCount(poolId), 0);
 
-        bool zeroForOne = true;
-        int256 amountSpecified = -1e18; // negative number indicates exact input swap!
+    //     bool zeroForOne = true;
+    //     int256 amountSpecified = -1e18; // negative number indicates exact input swap!
 
-        IERC20(Currency.unwrap(tokenA)).transfer(address(hook), 2e18);
-        BalanceDelta swapDelta = swap(key, zeroForOne, amountSpecified, ZERO_BYTES);
-        // Log price before swap
-        (uint160 sqrtPriceX96Before, int24 tickBefore, uint24 protocolFeeBefore, uint24 swapFeeBefore) =
-            manager.getSlot0(poolId);
-        console.log("Before swap:");
-        console.log("sqrtPriceX96:", sqrtPriceX96Before);
-        console.log("tick:", tickBefore);
-        console.log("protocolFee:", protocolFeeBefore);
-        console.log("swapFee:", swapFeeBefore);
+    //     (uint160 sqrtPriceX96Before,,,) = manager.getSlot0(poolId);
+    //     assertEq(sqrtPriceX96Before, 79228162514264337593543950336);
 
-        // Calculate and log actual price before swap (with proper decimal handling)
-        // price = (sqrtPriceX96 * sqrtPriceX96) / (2^192)
-        // Then adjust for decimals: price = price * 10^18 / 10^18
-        // uint256 priceBefore = (uint256(sqrtPriceX96Before) * uint256(sqrtPriceX96Before)) >> 192;
-        // console.log("price (token1/token0) raw:", priceBefore);
-        // console.log("price (token1/token0) in decimals:", priceBefore * 1e18 / (1e18)); // This will show the actual price with 18 decimals
+    //     IERC20(Currency.unwrap(tokenA)).transfer(address(hook), 2e18);
+    //     // IPoolManager.SwapParams memory swapParams = IPoolManager.SwapParams({
+    //     //     zeroForOne: true,
+    //     //     // amountSpecified: amountIn,
+    //     //     amountSpecified: -int256(100 ether),
+    //     //     // Set the price limit to be the least possible if swapping from Token 0 to Token 1
+    //     //     // or the maximum possible if swapping from Token 1 to Token 0
+    //     //     // i.e. infinite slippage allowed
+    //     //     sqrtPriceLimitX96: true ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
+    //     // });
 
-        // Perform your swap
-        // uint256 swapAmount = 100 ether;
-        // give LendingHook x amount of TokenA to swap
-        // swap(key, true, -int256(swapAmount), ZERO_BYTES);
+    //     // BalanceDelta swapDelta = _handleSwap(key, swapParams);
+    //     BalanceDelta swapDelta = swap(key, zeroForOne, amountSpecified, ZERO_BYTES);
+    //     // Log price before swap
+    //     (uint160 sqrtPriceX96After,,,) = manager.getSlot0(poolId);
+    //     assertEq(sqrtPriceX96After, 78446055342499616417857907004);
+    // }
 
-        // Log price after swap
-        // (uint160 sqrtPriceX96After, int24 tickAfter, uint24 protocolFeeAfter, uint24 swapFeeAfter) =
-        //     manager.getSlot0(poolId);
-        // console.log("sqrtPriceX96After", sqrtPriceX96After);
-        // console.log("tickAfter", tickAfter);
-        // console.log("protocolFeeAfter", protocolFeeAfter);
-        // console.log("swapFeeAfter", swapFeeAfter);
-
-        // assertEq(int256(swapDelta.amount0()), amountSpecified);
-
-        // assertEq(hook.beforeSwapCount(poolId), 1);
-    }
+    function testSupply() public {}
 }

@@ -38,11 +38,17 @@ interface ILending {
     //  */
     // function repay(bytes32 positionId, uint256 repayAmount) external;
 
-    function supply() external;
-        
+    /**
+     * @notice supply funds, this is for creating a new position nft id or reuse an old one
+     * @param _nftId: nft id representing the position
+     * @param _key: PoolKey for where to handle this position (gives info on currency tokens basically)
+     * @param _amt: amount to supply to the position
+     */
+    function supply(uint256 _nftId, PoolKey calldata _key, uint256 _amt) external;
+
     function borrow() external;
-    
+
     function repay() external;
-    
+
     function withdraw() external;
 }
