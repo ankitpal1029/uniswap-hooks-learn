@@ -15,13 +15,17 @@ import {BeforeSwapDelta, toBeforeSwapDelta, BeforeSwapDeltaLibrary} from "v4-cor
 import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
 import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 import {Constants} from "v4-core/test/utils/Constants.sol";
-
+import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
+import {ILending} from "./interfaces/ILending.sol";
+import {ERC721} from "v4-periphery/lib/permit2/lib/solmate/src/tokens/ERC721.sol";
 import {Variables} from "./Variables.sol";
-import {Lending} from "./Lending.sol";
+import {Variables} from "./Variables.sol";
+import {RatioTickMath} from "./lib/RatioTickMath.sol";
 
-contract LendingHook is BaseHook {
+contract LendingHook is BaseHook, ILending, ERC721, Variables {
     using CurrencyLibrary for Currency;
     using SafeERC20 for IERC20;
+    using StateLibrary for IPoolManager;
 
     enum PositionStatus {
         INACTIVE,
@@ -29,7 +33,6 @@ contract LendingHook is BaseHook {
         LIQUIDATING
     }
 
-    Lending lending;
     address owner;
 
     uint256 public constant LIQUIDATION_THRESHOLD = 9000; // 90% threshold
@@ -42,11 +45,15 @@ contract LendingHook is BaseHook {
         _;
     }
 
-    constructor(IPoolManager _poolManager, address _feeRecipient, address _lending, address _owner)
-        BaseHook(_poolManager)
-    {
-        lending = Lending(_lending);
+    constructor(
+        IPoolManager _poolManager,
+        address _feeRecipient,
+        address _owner,
+        string memory _nftName,
+        string memory _nftSymbol
+    ) BaseHook(_poolManager) ERC721(_nftName, _nftSymbol) {
         owner = _owner;
+        poolManager = _poolManager;
     }
 
     /**
@@ -61,8 +68,8 @@ contract LendingHook is BaseHook {
             afterAddLiquidity: false, // Track LP positions
             beforeRemoveLiquidity: false,
             afterRemoveLiquidity: false, // Update LP positions
-            beforeSwap: true, // Apply inverse range orders & check position health
-            afterSwap: false, // Update positions after price changes
+            beforeSwap: false, // Apply inverse range orders & check position health
+            afterSwap: true, // Update positions after price changes
             beforeDonate: false,
             afterDonate: false,
             beforeSwapReturnDelta: false,
@@ -82,28 +89,33 @@ contract LendingHook is BaseHook {
         return (IHooks.afterInitialize.selector);
     }
 
-    function _beforeSwap(address _addr, PoolKey calldata _key, IPoolManager.SwapParams calldata _params, bytes calldata)
-        internal
-        override
-        onlyPoolManager
-        returns (bytes4, BeforeSwapDelta, uint24)
-    {
-        beforeSwapCount[_key.toId()]++;
-        // do another swap
-        IPoolManager.SwapParams memory swapParams = IPoolManager.SwapParams({
-            zeroForOne: true,
-            // amountSpecified: amountIn,
-            amountSpecified: -int256(100 ether),
-            // Set the price limit to be the least possible if swapping from Token 0 to Token 1
-            // or the maximum possible if swapping from Token 1 to Token 0
-            // i.e. infinite slippage allowed
-            sqrtPriceLimitX96: true ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
-        });
+    function _afterSwap(
+        address,
+        PoolKey calldata _key,
+        IPoolManager.SwapParams calldata _params,
+        BalanceDelta,
+        bytes calldata
+    ) internal override onlyPoolManager returns (bytes4, int128) {
+        (, int24 currentTick,,) = poolManager.getSlot0(_key.toId());
 
-        // check how to do swap
-        // _handleSwap(_key, _params);
-        // only thing that happens in this function is trigger liquidation and sell
-        return (IHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
+        int24 currentTickLower = _getTickLower(currentTick, _key.tickSpacing);
+
+        getVaultVariables(_key.toId());
+        // int24 newAdjustmentFactor = lending.getVaultVariables(_key.toId()).tickAdjustmentFactor;
+        return (IHooks.afterSwap.selector, 0);
+
+        // adjust tick adjustment factor based on price
+        // now go through tickHasDebt
+    }
+
+    function _checkLiquidateable() internal {}
+
+    function _getTickLower(int24 actualTick, int24 tickSpacing) public pure returns (int24) {
+        int24 intervals = actualTick / tickSpacing;
+        if (actualTick < 0 && (actualTick % tickSpacing) != 0) {
+            intervals--;
+        }
+        return intervals * tickSpacing;
     }
 
     function _handleSwap(PoolKey calldata _key, IPoolManager.SwapParams calldata _params)
@@ -159,11 +171,127 @@ contract LendingHook is BaseHook {
         poolManager.take(_currency, address(this), _amount);
     }
 
-    function setLending(address _lender) public onlyOwner {
-        lending = Lending(_lender);
-    }
+    // function setLending(address _lender) public onlyOwner {
+    //     lending = Lending(_lender);
+    // }
 
     function getHookData(address _user) public pure returns (bytes memory) {
         return abi.encode(_user);
+    }
+
+    function tokenURI(uint256 id) public view override returns (string memory) {
+        return "yangit-lend.com";
+    }
+
+    function supply(uint256 _nftId, PoolKey calldata _key, uint256 _amt) external {
+        // check if that nftId exists if not create nft and give it to msg.sender
+        Position memory _positionInfo = positionData[_key.toId()][_nftId];
+
+        IERC20(Currency.unwrap(_key.currency0)).transferFrom(msg.sender, address(this), _amt);
+
+        // TODO: case where position is already liquidated but now you want to add more funds to start new position
+        if (_positionInfo.isInitialized) {
+            if (_positionInfo.isSupply) {
+                positionData[_key.toId()][_nftId] = Position({
+                    isInitialized: true,
+                    isSupply: _positionInfo.isSupply,
+                    userTick: 0,
+                    userTickId: _positionInfo.userTickId,
+                    supplyAmount: _positionInfo.supplyAmount + _amt
+                });
+            } else {
+                // TODO: account for existing liquidations, how much collateral is left, modify user tick etc
+                positionData[_key.toId()][_nftId] = Position({
+                    isInitialized: true,
+                    isSupply: _positionInfo.isSupply,
+                    userTick: 0, // TODO: update this tick based on new supply and existing debt
+                    userTickId: _positionInfo.userTickId,
+                    supplyAmount: _positionInfo.supplyAmount + _amt
+                });
+            }
+        } else {
+            positionData[_key.toId()][_nftId] =
+                Position({isInitialized: true, isSupply: true, userTick: 0, userTickId: 0, supplyAmount: _amt});
+
+            _safeMint(msg.sender, _nftId);
+        }
+    }
+
+    function borrow(uint256 _nftId, PoolKey calldata _key, uint256 _amt) external {
+        // check if nft is owned by msg.sender
+        require(ownerOf(_nftId) == msg.sender, "invalid owner");
+
+        Position memory _existingPosition = positionData[_key.toId()][_nftId];
+
+        if (_existingPosition.isSupply) {
+            uint256 ratioX96 = (_amt * RatioTickMath.ZERO_TICK_SCALED_RATIO) / _existingPosition.supplyAmount;
+            (int256 tick,) = RatioTickMath.getTickAtRatio(ratioX96);
+
+            // TODO: check if the ratio is within limits?
+            // max ratio 0.95
+            // threshold ratio 0.9
+
+            TickData memory _tickData = tickData[_key.toId()][tick];
+
+            tickData[_key.toId()][tick + vaultVariables[_key.toId()].tickAdjustmentFactor] = TickData({
+                isLiquidated: _tickData.isLiquidated,
+                totalIds: _tickData.totalIds + 1,
+                rawDebt: _tickData.rawDebt + _amt,
+                isFullyLiquidated: _tickData.isFullyLiquidated,
+                branchId: _tickData.branchId
+            });
+            positionData[_key.toId()][_nftId] = Position({
+                isInitialized: true,
+                isSupply: false,
+                userTick: tick,
+                userTickId: _tickData.totalIds + 1,
+                supplyAmount: _existingPosition.supplyAmount
+            });
+        } else {
+            TickData memory _tickData = tickData[_key.toId()][_existingPosition.userTick];
+
+            // TODO: if either of these are true it means position is liquidated, whole other branch of things to be done
+            if (_tickData.isLiquidated || _tickData.totalIds > _existingPosition.userTickId) {}
+
+            // TODO: check if the new ratio is within limits? if not liquidated already
+            // max ratio 0.95
+            // threshold ratio 0.9
+
+            tickData[_key.toId()][_existingPosition.userTick] = TickData({
+                isLiquidated: _tickData.isLiquidated,
+                totalIds: _tickData.totalIds - 1,
+                rawDebt: _tickData.rawDebt + _amt,
+                isFullyLiquidated: _tickData.isFullyLiquidated,
+                branchId: _tickData.branchId
+            });
+        }
+
+        // last step
+        IERC20(Currency.unwrap(_key.currency1)).transfer(msg.sender, _amt);
+    }
+
+    function repay() external {}
+
+    function withdraw() external {}
+
+    function earn(PoolKey calldata _key, uint256 _amt, address _receiver) external {
+        // use _key to pull curreny1 funds
+        // TODO: think about handling interest for this later need to figure out how to do interest logic on loans too
+        IERC20(Currency.unwrap(_key.currency1)).transferFrom(msg.sender, address(this), _amt);
+
+        liquidity[_key.toId()][_receiver].deposited += _amt;
+    }
+
+    function modifyVaultVariables(VaultVariablesState memory _vaultVariablesState, PoolKey calldata _key) public {
+        vaultVariables[_key.toId()] = _vaultVariablesState;
+    }
+
+    function getVaultVariables(PoolId _id) public view returns (VaultVariablesState memory) {
+        console.logInt(vaultVariables[_id].tickAdjustmentFactor);
+        return vaultVariables[_id];
+    }
+
+    function fetchPosition() public {
+        // TODO: needs to navigate liquidation, interest calculation, etc
     }
 }

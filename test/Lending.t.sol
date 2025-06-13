@@ -17,9 +17,11 @@ import {LiquidityAmounts} from "v4-core/test/utils/LiquidityAmounts.sol";
 import {Hooks} from "v4-core/src/libraries/Hooks.sol";
 import {Fixtures} from "./utils/Fixtures.sol";
 import {LendingHook} from "../src/LendingHook.sol";
-import {LendingHookStub} from "./LendingHookStub.sol";
 import {BalanceDelta} from "v4-core/src/types/BalanceDelta.sol";
 import {IERC20} from "v4-core/lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {IERC721} from "forge-std/interfaces/IERC721.sol";
+import {IERC721Receiver} from "../src/interfaces/IERC721Receiver.sol";
+import {RatioTickMath} from "../src/lib/RatioTickMath.sol";
 
 // import {Lending}  from "../../src/LendingHook.sol";
 
@@ -30,6 +32,11 @@ contract LendingHookTest is Test, GasSnapshot, Fixtures {
 
     LendingHook hook;
     PoolId poolId;
+
+    address constant user1 = 0x8E1c4e0a7e85b2490f6d811824515D6FAD3115A6;
+    address constant user2 = 0x1A752656D698c48f3C0eB960c9eBCc814bb86F26;
+    address constant user3 = 0xF0E17D67776FcdC524b80572dd6e3cf654A63E70;
+    address constant owner = 0xAC5092A5c7302693a8e39643339109d21DBad723;
 
     uint256 tokenId;
     int24 tickLower;
@@ -47,19 +54,25 @@ contract LendingHookTest is Test, GasSnapshot, Fixtures {
 
         // Deploy the hook to an address with the correct flags
         address flags = address(
-            uint160(Hooks.AFTER_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG) ^ (0x4444 << 144) // Namespace the hook to avoid collisions
+            uint160(Hooks.AFTER_INITIALIZE_FLAG | Hooks.AFTER_SWAP_FLAG) ^ (0x4444 << 144) // Namespace the hook to avoid collisions
         );
         bytes memory constructorArgs = abi.encode(
             manager, // _poolManager
             address(0), // _feeRecipient (set to zero address for now)
-            address(0), // _lending (set to zero address for now)
-            address(this) // _owner (set to test contract for testing)); //Add all the necessary constructor arguments from the hook
+            address(this), // _owner (set to test contract for testing)); //Add all the necessary constructor arguments from the hook
+            "Yangit Lend",
+            "YL"
         );
         deployCodeTo("LendingHook.sol:LendingHook", constructorArgs, flags);
         hook = LendingHook(flags);
         console.log("LendingHook address:", address(hook));
         console.log("Currency0(WETH):", Currency.unwrap(currency0));
         console.log("Currency1(USDC):", Currency.unwrap(currency1));
+
+        // deploy Lending.sol
+        // lending = new Lending(manager, "Yangit Lend", "YL", owner, address(hook));
+        // console.log("Lending Contract:", address(lending));
+        // console.log("Testing Contract:", address(this));
 
         // Create the pool
         key = PoolKey(currency0, currency1, 3000, 60, IHooks(hook));
@@ -90,34 +103,66 @@ contract LendingHookTest is Test, GasSnapshot, Fixtures {
             block.timestamp,
             ZERO_BYTES
         );
+
+        // Supply currency 1 to lending contract
+        uint256 earnAmt = 100e18;
+        IERC20(Currency.unwrap(currency1)).approve(address(hook), earnAmt);
+        hook.earn(key, earnAmt, address(this));
+
+        (int256 liqLimit,) = RatioTickMath.getTickAtRatio((95 * RatioTickMath.ZERO_TICK_SCALED_RATIO) / 100);
+        (int256 liqThresh,) = RatioTickMath.getTickAtRatio((90 * RatioTickMath.ZERO_TICK_SCALED_RATIO) / 100);
+
+        console.log("Liquidation limit:", liqLimit);
+        console.log("liquidation threshold:", liqThresh);
+
+        // Supply currency 0 to test users
+        IERC20(Currency.unwrap(currency0)).transfer(address(user1), earnAmt);
+        IERC20(Currency.unwrap(currency0)).transfer(address(user2), earnAmt);
     }
 
-    // function testSwapInternal() public {
-    //     assertEq(hook.beforeSwapCount(poolId), 0);
+    function testSupplyAndBorrow() public {
+        IERC20(Currency.unwrap(currency0)).approve(address(hook), 1e18);
 
-    //     bool zeroForOne = true;
-    //     int256 amountSpecified = -1e18; // negative number indicates exact input swap!
+        uint256 _nftId = 1;
+        uint256 _supplyAmt = 1e18;
+        uint256 _borrowAmt = 0.5e18;
 
-    //     (uint160 sqrtPriceX96Before,,,) = manager.getSlot0(poolId);
-    //     assertEq(sqrtPriceX96Before, 79228162514264337593543950336);
+        uint256 currency0BalBefore = IERC20(Currency.unwrap(key.currency0)).balanceOf(address(this));
+        hook.supply(_nftId, key, _supplyAmt);
+        uint256 currency0BalAfter = IERC20(Currency.unwrap(key.currency0)).balanceOf(address(this));
+        assertEq(currency0BalBefore - _supplyAmt, currency0BalAfter);
 
-    //     IERC20(Currency.unwrap(tokenA)).transfer(address(hook), 2e18);
-    //     // IPoolManager.SwapParams memory swapParams = IPoolManager.SwapParams({
-    //     //     zeroForOne: true,
-    //     //     // amountSpecified: amountIn,
-    //     //     amountSpecified: -int256(100 ether),
-    //     //     // Set the price limit to be the least possible if swapping from Token 0 to Token 1
-    //     //     // or the maximum possible if swapping from Token 1 to Token 0
-    //     //     // i.e. infinite slippage allowed
-    //     //     sqrtPriceLimitX96: true ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
-    //     // });
+        uint256 currency1BalBefore = IERC20(Currency.unwrap(key.currency1)).balanceOf(address(this));
+        hook.borrow(_nftId, key, _borrowAmt);
+        uint256 currency1BalAfter = IERC20(Currency.unwrap(key.currency1)).balanceOf(address(this));
+        assertEq(currency1BalAfter, currency1BalBefore + _borrowAmt);
+    }
 
-    //     // BalanceDelta swapDelta = _handleSwap(key, swapParams);
-    //     BalanceDelta swapDelta = swap(key, zeroForOne, amountSpecified, ZERO_BYTES);
-    //     // Log price before swap
-    //     (uint160 sqrtPriceX96After,,,) = manager.getSlot0(poolId);
-    //     assertEq(sqrtPriceX96After, 78446055342499616417857907004);
-    // }
+    function testLiquidation() public {
+        uint256 _user1_nftId = 1;
+        uint256 _user1_supplyAmt = 1e18;
+        uint256 _user1_borrowAmt = 0.8e18;
 
-    function testSupply() public {}
+        uint256 _user2_nftId = 2;
+
+        vm.startPrank(user1);
+        IERC20(Currency.unwrap(key.currency0)).approve(address(hook), 2e18);
+        hook.supply(_user1_nftId, key, _user1_supplyAmt);
+        hook.borrow(_user1_nftId, key, _user1_borrowAmt);
+        vm.stopPrank();
+
+        // do a big swap to change the price massively so that user gets liquidated
+        bool zeroForOne = true;
+        IERC20(Currency.unwrap(key.currency0)).transfer(address(hook), 2e18);
+        int256 amountSpecified = -1e18; // negative number indicates exact input swap!
+        BalanceDelta swapDelta = swap(key, zeroForOne, amountSpecified, ZERO_BYTES);
+    }
+
+    function onERC721Received(address operator, address, /*from*/ uint256, /*tokenId*/ bytes memory /*data*/ )
+        external
+        view
+        returns (bytes4)
+    {
+        return IERC721Receiver.onERC721Received.selector;
+    }
 }

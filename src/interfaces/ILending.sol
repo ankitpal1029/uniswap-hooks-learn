@@ -5,39 +5,6 @@ import {Currency, CurrencyLibrary} from "v4-periphery/lib/v4-core/src/types/Curr
 import {PoolKey} from "v4-periphery/lib/v4-core/src/types/PoolKey.sol";
 
 interface ILending {
-    // /**
-    //  * @notice Deposit tokens for lending
-    //  * @param token The token to deposit
-    //  * @param amount The amount to deposit
-    //  */
-    // function supply(Currency token, uint256 amount) external;
-
-    // /**
-    //  * @notice Withdraw tokens from lending
-    //  * @param token The token to withdraw
-    //  * @param amount The amount to withdraw
-    //  */
-    // function withdraw(Currency token, uint256 amount) external;
-
-    // /**
-    //  * @notice Create a borrowing position
-    //  * @param key The Uniswap V4 pool key
-    //  * @param collateralAmount Amount of collateral to deposit
-    //  * @param borrowAmount Amount to borrow
-    //  * @param liquidationThreshold Liquidation threshold (5000-9900)
-    //  * @return positionId The ID of the created position
-    //  */
-    // function borrow(PoolKey calldata key, uint256 collateralAmount, uint256 borrowAmount, uint256 liquidationThreshold)
-    //     external
-    //     returns (bytes32 positionId);
-
-    // /**
-    //  * @notice Repay a borrowing position
-    //  * @param positionId ID of the position to repay
-    //  * @param repayAmount Amount to repay
-    //  */
-    // function repay(bytes32 positionId, uint256 repayAmount) external;
-
     /**
      * @notice supply funds, this is for creating a new position nft id or reuse an old one
      * @param _nftId: nft id representing the position
@@ -46,9 +13,18 @@ interface ILending {
      */
     function supply(uint256 _nftId, PoolKey calldata _key, uint256 _amt) external;
 
-    function borrow() external;
+    // uint256 _nftId, PoolKey calldata _key, uint256 _amt
+    /**
+     * @notice borrow funds, can only be done if user has supplied before
+     * @param _nftId: nft id representing the position
+     * @param _key: PoolKey for where to handle this position (gives info on currency tokens basically)
+     * @param _amt: amount to borrow from the position
+     */
+    function borrow(uint256 _nftId, PoolKey calldata _key, uint256 _amt) external;
 
     function repay() external;
 
     function withdraw() external;
+
+    function earn(PoolKey calldata _key, uint256 _amt, address _receiver) external;
 }

@@ -22,6 +22,8 @@ abstract contract Variables {
         int64 totalSupply;
         int64 totalBorrow;
         int32 totalPositions;
+        // depending on the current price tick needs to be adjusted
+        int24 tickAdjustmentFactor;
     }
 
     struct VaultVariablesConfig {
@@ -65,12 +67,12 @@ abstract contract Variables {
         bool isLiquidated; // true -> liquidated, false -> non liquidated
         uint24 totalIds; // total number of ids in the tick, start from 1
         // if tick wasn't liquidated
-        uint64 rawDebt;
+        uint256 rawDebt;
         // if tick was liquidated
         bool isFullyLiquidated; // true -> fully liquidated, false -> not fully liquidated
-        int32 branchIdWhereTickLiquidated; // branch id where tick was liquidated
-        int40 debtFactorCoefficient; // debt factor of the tick not sure
-        int16 debtFactorExpansion; // debt factor expansion of the tick not sure
+        uint256 branchId; // branch id where tick was liquidated
+            // int40 debtFactorCoefficient; // debt factor of the tick not sure
+            // int16 debtFactorExpansion; // debt factor expansion of the tick not sure
     }
 
     struct BranchData {
@@ -96,22 +98,33 @@ abstract contract Variables {
         uint256 debtFactor; // TODO: figure out why you need this
     }
 
-    mapping(PoolId poolId => VaultVariablesState) vaultVariables;
+    struct Liquidity {
+        uint256 deposited;
+    }
 
-    mapping(PoolId poolId => VaultVariablesConfig) vaultVariablesConfig;
+    mapping(PoolId poolId => VaultVariablesState) public vaultVariables;
+
+    mapping(PoolId poolId => VaultVariablesConfig) public vaultVariablesConfig;
 
     // uniswap poolId => nftId => positionData
-    mapping(PoolId poolId => mapping(uint256 => Position)) positionData;
+    mapping(PoolId poolId => mapping(uint256 => Position)) public positionData;
 
     /// Tick has debt only keeps data of non liquidated positions. liquidated tick's data stays in branch itself
-    /// tick parent => uint (represents bool for 256 children)
+    /// poolId => tick parent => uint (represents bool for 256 children)
     /// parent of (i)th tick:-
     /// if (i>=0) (i / 256);
     /// else ((i + 1) / 256) - 1
     /// first bit of the variable is the smallest tick & last bit is the biggest tick of that slot
-    mapping(PoolId poolId => mapping(int256 => TickData)) tickHasDebt;
+    mapping(PoolId poolId => mapping(int256 => uint256)) public tickHasDebt;
+
+    /// mapping tickId => tickData
+    /// Tick related data. Total debt & other things
+    mapping(PoolId poolId => mapping(int256 => TickData)) public tickData;
 
     // uniswap poolid => tick => tickId => tickId
     // tickId starts from 1
-    mapping(PoolId poolId => mapping(int256 => mapping(uint256 => TickId))) tickId;
+    mapping(PoolId poolId => mapping(int256 => mapping(uint256 => TickId))) public tickId;
+
+    // liquidity
+    mapping(PoolId poolId => mapping(address => Liquidity)) public liquidity;
 }

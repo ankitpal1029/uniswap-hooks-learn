@@ -4,7 +4,7 @@ pragma solidity ^0.8.26;
 /// @title library that calculates number "tick" and "ratioX96" from this: ratioX96 = (1.0015^tick) * 2^96
 /// @notice this library is used in Fluid Vault protocol for optimiziation.
 /// @dev "tick" supports between -32767 and 32767. "ratioX96" supports between 37075072 and 169307877264527972847801929085841449095838922544595
-library TickMath {
+library RatioTickMath {
     /// The minimum tick that can be passed in getRatioAtTick. 1.0015**-32767
     int24 internal constant MIN_TICK = -32767;
     /// The maximum tick that can be passed in getRatioAtTick. 1.0015**32767
